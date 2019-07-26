@@ -13,7 +13,7 @@
 # limitations under the License.
 "Unit testing with Karma"
 
-load("@build_bazel_rules_nodejs//:providers.bzl", "JSNamedModuleInfo")
+load("@build_bazel_rules_nodejs//:providers.bzl", "JSModuleInfo", "JSNamedModuleInfo")
 load("@build_bazel_rules_nodejs//internal/common:node_module_info.bzl", "NodeModuleInfo", "node_modules_aspect")
 load("@build_bazel_rules_nodejs//internal/js_library:js_library.bzl", "write_amd_names_shim")
 load("@io_bazel_rules_webtesting//web:web.bzl", "web_test_suite")
@@ -96,9 +96,8 @@ def _write_karma_config(ctx, files, amd_names_shim):
 
     # Check for config_file since ts_web_test does not have this attribute
     if hasattr(ctx.attr, "config_file") and ctx.attr.config_file:
-        # TODO: switch to JSModuleInfo when it is available
-        if JSNamedModuleInfo in ctx.attr.config_file:
-            config_file = ctx.attr.config_file[JSNamedModuleInfo].sources.to_list()[0]
+        if JSModuleInfo in ctx.attr.config_file:
+            config_file = ctx.attr.config_file[JSModuleInfo].sources.to_list()[0]
         else:
             config_file = ctx.file.config_file
 
@@ -267,9 +266,8 @@ $KARMA ${{ARGV[@]}}
 
     # Check for config_file since ts_web_test does not have this attribute
     if hasattr(ctx.attr, "config_file") and ctx.attr.config_file:
-        # TODO: switch to JSModuleInfo when it is available
-        if JSNamedModuleInfo in ctx.attr.config_file:
-            config_sources = ctx.attr.config_file[JSNamedModuleInfo].sources.to_list()
+        if JSModuleInfo in ctx.attr.config_file:
+            config_sources = ctx.attr.config_file[JSModuleInfo].sources.to_list()
         else:
             config_sources = [ctx.file.config_file]
 

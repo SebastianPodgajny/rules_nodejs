@@ -14,7 +14,7 @@
 
 "TypeScript compilation"
 
-load("@build_bazel_rules_nodejs//:providers.bzl", "transitive_js_ecma_script_module_info", "transitive_js_named_module_info")
+load("@build_bazel_rules_nodejs//:providers.bzl", "transitive_js_ecma_script_module_info", "transitive_js_module_info", "transitive_js_named_module_info")
 load("@build_bazel_rules_nodejs//internal/common:node_module_info.bzl", "NodeModuleInfo", "node_modules_aspect")
 
 # pylint: disable=unused-argument
@@ -275,6 +275,11 @@ def _ts_library_impl(ctx):
     # See design doc https://docs.google.com/document/d/1ggkY5RqUkVL4aQLYm7esRW978LgX3GUCnQirrk5E1C0/edit#
     # and issue https://github.com/bazelbuild/rules_nodejs/issues/57 for more details.
     ts_providers["providers"].extend([
+        transitive_js_module_info(
+            module_format = "umd",
+            sources = ts_providers["typescript"]["es5_sources"],
+            deps = ctx.attr.deps,
+        ),
         transitive_js_named_module_info(
             sources = ts_providers["typescript"]["es5_sources"],
             deps = ctx.attr.deps,
@@ -283,8 +288,7 @@ def _ts_library_impl(ctx):
             sources = ts_providers["typescript"]["es6_sources"],
             deps = ctx.attr.deps,
         ),
-        # TODO: Add remaining shared JS provider from design doc
-        # (JSModuleInfo) and remove legacy "typescript" provider
+        # TODO: remove legacy "typescript" provider
         # once it is no longer needed.
     ])
 

@@ -1,5 +1,6 @@
 "Minimal fixture for executing the linker's starlark code"
 
+load("@build_bazel_rules_nodejs//internal/common:node_module_info.bzl", "node_modules_aspect")
 load("@build_bazel_rules_nodejs//internal/linker:link_node_modules.bzl", "module_mappings_aspect", "register_node_modules_linker")
 
 def _linked(ctx):
@@ -20,6 +21,6 @@ linked = rule(_linked, attrs = {
     "program": attr.label(executable = True, cfg = "host", mandatory = True),
     "deps": attr.label_list(
         allow_files = True,
-        aspects = [module_mappings_aspect],
+        aspects = [module_mappings_aspect, node_modules_aspect],
     ),
 })

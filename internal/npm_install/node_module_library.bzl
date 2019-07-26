@@ -16,7 +16,7 @@
 """
 
 load("@build_bazel_rules_nodejs//:declaration_provider.bzl", "DeclarationInfo")
-load("@build_bazel_rules_nodejs//:providers.bzl", "transitive_js_named_module_info")
+load("@build_bazel_rules_nodejs//:providers.bzl", "transitive_js_module_info", "transitive_js_named_module_info")
 load("@build_bazel_rules_nodejs//internal/common:node_module_info.bzl", "NodeModuleInfo")
 
 def _node_module_library_impl(ctx):
@@ -54,7 +54,7 @@ def _node_module_library_impl(ctx):
             es6_sources = depset(),
             replay_params = None,
             transitive_declarations = transitive_declarations,
-            transitive_es5_sources = depset(),
+            # still needed for compat with rules_typescript
             transitive_es6_sources = depset(),
             tsickle_externs = [],
             type_blacklisted_declarations = depset(),
@@ -70,6 +70,11 @@ def _node_module_library_impl(ctx):
             DeclarationInfo(
                 declarations = declarations,
                 transitive_declarations = transitive_declarations,
+            ),
+            transitive_js_module_info(
+                module_format = "",
+                sources = sources,
+                deps = ctx.attr.deps,
             ),
             transitive_js_named_module_info(
                 sources = depset(ctx.files.named_sources),

@@ -14,7 +14,7 @@
 "Protocol Buffers"
 
 load("@build_bazel_rules_nodejs//:declaration_provider.bzl", "DeclarationInfo")
-load("@build_bazel_rules_nodejs//:providers.bzl", "JSEcmaScriptModuleInfo", "JSNamedModuleInfo")
+load("@build_bazel_rules_nodejs//:providers.bzl", "JSEcmaScriptModuleInfo", "JSModuleInfo", "JSNamedModuleInfo")
 
 def _run_pbjs(actions, executable, output_name, proto_files, suffix = ".js", wrap = "amd", amd_name = ""):
     js_file = actions.declare_file(output_name + suffix)
@@ -118,6 +118,10 @@ def _ts_proto_library(ctx):
                 declarations = declarations,
                 transitive_declarations = declarations,
             ),
+            JSModuleInfo(
+                sources = es5_sources,
+                module_format = "amd",
+            ),
             JSNamedModuleInfo(
                 sources = es5_sources,
             ),
@@ -125,6 +129,7 @@ def _ts_proto_library(ctx):
                 sources = es6_sources,
             ),
         ],
+        # TODO: remove when consumers are updated
         typescript = struct(
             declarations = declarations,
             transitive_declarations = declarations,
