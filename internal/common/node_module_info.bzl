@@ -12,63 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""NodeModuleInfo & NodeModuleSources providers and apsect to collect node_modules from deps.
+"""NodeModuleInfo providers and apsect to collect node_modules from deps.
 """
 
-# NodeModuleInfo provider is only provided by targets that are npm dependencies by the
-# `node_module_library` rule. This provider is currently used by different rules to filter out
-# npm dependencies such as
-# ```
-# [d for d in ctx.attr.deps if not NodeModuleInfo in d]
-# ```
-# in `packages/typescript/internal/build_defs.bzl` or
-# ```
-# hasattr(target, "files") and not NodeModuleInfo in target:
-# ```
-# in `internal/common/sources_aspect.bzl`.
-# Similar filtering is done in downstream repositories such as angular/angular so this provider
-# needs to go through a deprecation period before it can be phased out.
-NodeModuleInfo = provider(
-    doc = "Provides information about npm dependencies installed with yarn_install and npm_install rules",
-    fields = {
-        "workspace": "The workspace name that the npm dependencies are provided from",
-    },
-)
-
-# NodeModuleSources provider is provided by targets that are npm dependencies by the
+# NodeModuleInfo provider is provided by targets that are npm dependencies by the
 # `node_module_library` rule as well as other targets that have direct or transitive deps on
-# `node_module_library` targets via the `collect_node_modules_aspect` below.
-# TODO: rename to NodeModuleSourcesInfo so name doesn't trigger name-conventions warning
-# buildozer: disable=name-conventions
-NodeModuleSources = provider(
-    doc = "Provides sources for npm dependencies installed with yarn_install and npm_install rules",
+# `node_module_library` targets via the `node_modules_aspect` below.
+NodeModuleInfo = provider(
+    doc = "Provides information about npm dependencies",
     fields = {
-        "scripts": "Source files that are javascript named-UMD or named-AMD modules for use in rules such as ts_devserver",
-        "sources": "Source files that are npm dependencies",
+        "sources": "Source files that are direct & transitive npm depedendencies",
         "workspace": "The workspace name that the npm dependencies are provided from",
     },
 )
 
-def _collect_node_modules_aspect_impl(target, ctx):
-    nm_wksp = None
+def _node_modules_aspect_impl(target, ctx):
+    providers = []
 
-    if NodeModuleSources in target:
-        return []
-
-    if hasattr(ctx.rule.attr, "deps"):
+    # provide NodeModuleInfo if it is not already provided there are NodeModuleInfo deps
+    if not NodeModuleInfo in target:
         sources = depset()
-        for dep in ctx.rule.attr.deps:
-            if NodeModuleSources in dep:
-                if nm_wksp and dep[NodeModuleSources].workspace != nm_wksp:
-                    fail("All npm dependencies need to come from a single workspace. Found '%s' and '%s'." % (nm_wksp, dep[NodeModuleSources].workspace))
-                nm_wksp = dep[NodeModuleSources].workspace
-                sources = depset(transitive = [dep[NodeModuleSources].sources, sources])
-        if sources:
-            return [NodeModuleSources(sources = sources, workspace = nm_wksp)]
+        nm_wksp = None
+        if hasattr(ctx.rule.attr, "deps"):
+            for dep in ctx.rule.attr.deps:
+                if NodeModuleInfo in dep:
+                    if nm_wksp and dep[NodeModuleInfo].workspace != nm_wksp:
+                        fail("All npm dependencies need to come from a single workspace. Found '%s' and '%s'." % (nm_wksp, dep[NodeModuleInfo].workspace))
+                    nm_wksp = dep[NodeModuleInfo].workspace
+                    sources = depset(transitive = [dep[NodeModuleInfo].sources, sources])
+            if nm_wksp:
+                providers.extend([NodeModuleInfo(sources = sources, workspace = nm_wksp)])
 
-    return []
+    return providers
 
-collect_node_modules_aspect = aspect(
-    implementation = _collect_node_modules_aspect_impl,
+node_modules_aspect = aspect(
+    _node_modules_aspect_impl,
     attr_aspects = ["deps"],
 )

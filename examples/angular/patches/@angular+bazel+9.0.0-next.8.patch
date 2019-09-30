@@ -11,11 +11,68 @@ index 667f601..7907c12 100755
  
      # short_path is meant to be used when accessing runfiles in a binary, where
      # the CWD is inside the current repo. Therefore files in external repo have a
+diff --git a/node_modules/@angular/bazel/src/external.bzl b/node_modules/@angular/bazel/src/external.bzl
+index 4959f22..429f97f 100755
+--- a/node_modules/@angular/bazel/src/external.bzl
++++ b/node_modules/@angular/bazel/src/external.bzl
+@@ -15,16 +15,16 @@ load(
+ )
+ load(
+     "@build_bazel_rules_nodejs//internal/common:node_module_info.bzl",
+-    _NodeModuleSources = "NodeModuleSources",
+-    _collect_node_modules_aspect = "collect_node_modules_aspect",
++    _NodeModuleInfo = "NodeModuleInfo",
++    _node_modules_aspect = "node_modules_aspect",
+ )
+ load(
+     "@npm_bazel_typescript//internal:ts_config.bzl",
+     _TsConfigInfo = "TsConfigInfo",
+ )
+ 
+-NodeModuleSources = _NodeModuleSources
+-collect_node_modules_aspect = _collect_node_modules_aspect
++NodeModuleInfo = _NodeModuleInfo
++node_modules_aspect = _node_modules_aspect
+ 
+ tsc_wrapped_tsconfig = _tsc_wrapped_tsconfig
+ COMMON_ATTRIBUTES = _COMMON_ATTRIBUTES
+diff --git a/node_modules/@angular/bazel/src/modify_tsconfig.js b/node_modules/@angular/bazel/src/modify_tsconfig.js
+index 9d3c491..3c99746 100755
+--- a/node_modules/@angular/bazel/src/modify_tsconfig.js
++++ b/node_modules/@angular/bazel/src/modify_tsconfig.js
+@@ -44,7 +44,7 @@ function main(args) {
+     // ngc-wrapped is expecting POSIX paths and the TypeScript Bazel rules by default only pass
+     // POSIX paths as well.
+     angularCompilerOptions['expectedOut'] = angularCompilerOptions['expectedOut'].map(
+-        f => f.replace(/\.closure\.js$/, '.js').replace(binDir, newOutputBase));
++        f => f.replace(/\.mjs$/, '.js').replace(binDir, newOutputBase));
+   }
+   fs.writeFileSync(output, JSON.stringify(data));
+ }
 diff --git a/node_modules/@angular/bazel/src/ng_module.bzl b/node_modules/@angular/bazel/src/ng_module.bzl
-index 9b88fbb..d2eb8aa 100755
+index 9b88fbb..eecbb48 100755
 --- a/node_modules/@angular/bazel/src/ng_module.bzl
 +++ b/node_modules/@angular/bazel/src/ng_module.bzl
-@@ -237,7 +237,7 @@ def _expected_outs(ctx):
+@@ -13,14 +13,16 @@ load(
+     "DEFAULT_NG_COMPILER",
+     "DEFAULT_NG_XI18N",
+     "DEPS_ASPECTS",
+-    "NodeModuleSources",
++    "NodeModuleInfo",
+     "TsConfigInfo",
+-    "collect_node_modules_aspect",
++    "node_modules_aspect",
+     "compile_ts",
+     "ts_providers_dict_to_struct",
+     "tsc_wrapped_tsconfig",
+ )
+ 
++load("@build_bazel_rules_nodejs//:providers.bzl", "transitive_js_ecma_script_module_info", "transitive_js_named_module_info")
++
+ _FLAT_DTS_FILE_SUFFIX = ".bundle.d.ts"
+ _R3_SYMBOLS_DTS_FILE = "src/r3_symbols.d.ts"
+ 
+@@ -237,7 +239,7 @@ def _expected_outs(ctx):
              continue
  
          filter_summaries = ctx.attr.filter_summaries
@@ -24,7 +81,7 @@ index 9b88fbb..d2eb8aa 100755
          declarations = [f.replace(".js", ".d.ts") for f in devmode_js]
  
          devmode_js_files += [ctx.actions.declare_file(basename + ext) for ext in devmode_js]
-@@ -262,7 +262,7 @@ def _expected_outs(ctx):
+@@ -262,7 +264,7 @@ def _expected_outs(ctx):
      if _should_produce_flat_module_outs(ctx):
          flat_module_out = _flat_module_out_file(ctx)
          devmode_js_files.append(ctx.actions.declare_file("%s.js" % flat_module_out))
@@ -33,3 +90,284 @@ index 9b88fbb..d2eb8aa 100755
          bundle_index_typings = ctx.actions.declare_file("%s.d.ts" % flat_module_out)
          declaration_files.append(bundle_index_typings)
          if is_legacy_ngc:
+@@ -517,11 +519,11 @@ def _compile_action(ctx, inputs, outputs, dts_bundles_out, messages_out, tsconfi
+             file_inputs += ctx.attr.tsconfig[TsConfigInfo].deps
+ 
+     # Also include files from npm fine grained deps as action_inputs.
+-    # These deps are identified by the NodeModuleSources provider.
++    # These deps are identified by the NodeModuleInfo provider.
+     for d in ctx.attr.deps:
+-        if NodeModuleSources in d:
++        if NodeModuleInfo in d:
+             # Note: we can't avoid calling .to_list() on sources
+-            file_inputs.extend(_filter_ts_inputs(d[NodeModuleSources].sources.to_list()))
++            file_inputs.extend(_filter_ts_inputs(d[NodeModuleInfo].sources.to_list()))
+ 
+     # Collect the inputs and summary files from our deps
+     action_inputs = depset(
+@@ -603,9 +605,23 @@ def ng_module_impl(ctx, ts_compile_actions):
+     return providers
+ 
+ def _ng_module_impl(ctx):
+-    return ts_providers_dict_to_struct(ng_module_impl(ctx, compile_ts))
+-
+-local_deps_aspects = [collect_node_modules_aspect, _collect_summaries_aspect]
++    ts_providers = ng_module_impl(ctx, compile_ts)
++
++    # Add in new JS providers
++    ts_providers["providers"].extend([
++        transitive_js_named_module_info(
++            sources = ts_providers["typescript"]["es5_sources"],
++            deps = ctx.attr.deps,
++        ),
++        transitive_js_ecma_script_module_info(
++            sources = ts_providers["typescript"]["es6_sources"],
++            deps = ctx.attr.deps,
++        ),
++    ])
++
++    return ts_providers_dict_to_struct(ts_providers)
++
++local_deps_aspects = [node_modules_aspect, _collect_summaries_aspect]
+ 
+ # Workaround skydoc bug which assumes DEPS_ASPECTS is a str type
+ [local_deps_aspects.append(a) for a in DEPS_ASPECTS]
+diff --git a/node_modules/@angular/bazel/src/ng_package/ng_package.bzl b/node_modules/@angular/bazel/src/ng_package/ng_package.bzl
+index 48d7619..46c1c4a 100755
+--- a/node_modules/@angular/bazel/src/ng_package/ng_package.bzl
++++ b/node_modules/@angular/bazel/src/ng_package/ng_package.bzl
+@@ -13,9 +13,8 @@ It packages your library following the Angular Package Format, see the
+ specification of this format at https://goo.gl/jB3GVv
+ """
+ 
+-load("@build_bazel_rules_nodejs//internal/common:collect_es6_sources.bzl", "collect_es6_sources")
+-load("@build_bazel_rules_nodejs//internal/common:node_module_info.bzl", "NodeModuleSources")
+-load("@build_bazel_rules_nodejs//internal/common:sources_aspect.bzl", "sources_aspect")
++load("@build_bazel_rules_nodejs//:providers.bzl", "JSEcmaScriptModuleInfo", "JSNamedModuleInfo")
++load("@build_bazel_rules_nodejs//internal/common:node_module_info.bzl", "NodeModuleInfo")
+ load(
+     "@build_bazel_rules_nodejs//internal/rollup:rollup_bundle.bzl",
+     "ROLLUP_ATTRS",
+@@ -33,11 +32,6 @@ load("//src:external.bzl", "FLAT_DTS_FILE_SUFFIX")
+ load("//src:esm5.bzl", "esm5_outputs_aspect", "esm5_root_dir", "flatten_esm5")
+ load("//src/ng_package:collect-type-definitions.bzl", "collect_type_definitions")
+ 
+-# Prints a debug message if "--define=VERBOSE_LOGS=true" is specified.
+-def _debug(vars, *args):
+-    if "VERBOSE_LOGS" in vars.keys():
+-        print("[ng_package.bzl]", *args)
+-
+ _DEFAULT_NG_PACKAGER = "@npm//@angular/bazel/bin:packager"
+ 
+ # Convert from some-dash-case to someCamelCase
+@@ -103,7 +97,7 @@ WELL_KNOWN_GLOBALS = {p: _global_name(p) for p in [
+ # TODO(gregmagolan): clean this up
+ _DEPSET_TYPE = "depset"
+ 
+-def _rollup(ctx, bundle_name, rollup_config, entry_point, inputs, js_output, format = "es", module_name = "", include_tslib = False):
++def _rollup(ctx, bundle_name, rollup_config, entry_point, inputs, js_output, format = "es", package_name = "", include_tslib = False):
+     map_output = ctx.actions.declare_file(js_output.basename + ".map", sibling = js_output)
+ 
+     args = ctx.actions.args()
+@@ -112,9 +106,9 @@ def _rollup(ctx, bundle_name, rollup_config, entry_point, inputs, js_output, for
+     args.add("--input", entry_point)
+     args.add("--output.file", js_output)
+     args.add("--output.format", format)
+-    if module_name:
+-        args.add("--output.name", _global_name(module_name))
+-        args.add("--amd.id", module_name)
++    if package_name:
++        args.add("--output.name", _global_name(package_name))
++        args.add("--amd.id", package_name)
+ 
+     # After updating to build_bazel_rules_nodejs 0.27.0+, rollup has been updated to v1.3.1
+     # which tree shakes @__PURE__ annotations and const variables which are later amended by NGCC.
+@@ -207,7 +201,12 @@ def _filter_js_inputs(all_inputs):
+ def _ng_package_impl(ctx):
+     npm_package_directory = ctx.actions.declare_directory("%s.ng_pkg" % ctx.label.name)
+ 
+-    esm_2015_files = _filter_out_generated_files(collect_es6_sources(ctx), "js")
++    esm_2015_files = []
++    for dep in ctx.attr.deps:
++        if JSEcmaScriptModuleInfo in dep:
++            esm_2015_files += dep[JSEcmaScriptModuleInfo].sources.to_list()
++
++    esm_2015_files = _filter_out_generated_files(esm_2015_files, "js")
+     esm5_sources = _filter_out_generated_files(flatten_esm5(ctx), "js")
+ 
+     # These accumulators match the directory names where the files live in the
+@@ -233,70 +232,22 @@ def _ng_package_impl(ctx):
+     # - ng_module rules in the deps (they have an "angular" provider)
+     # - in this package or a subpackage
+     # - those that have a module_name attribute (they produce flat module metadata)
+-    collected_entry_points = []
++    flat_module_metadata = []
+ 
++    # Name given in the package.json name field, eg. @angular/core/testing
++    package_name = ""
+     deps_in_package = [d for d in ctx.attr.deps if d.label.package.startswith(ctx.label.package)]
+     for dep in deps_in_package:
+-        # Module name of the current entry-point. eg. @angular/core/testing
+-        module_name = ""
+-
+         # Intentionally evaluates to empty string for the main entry point
+         entry_point = dep.label.package[len(ctx.label.package) + 1:]
+-
+-        # Extract the "module_name" from either "ts_library" or "ng_module". Both
+-        # set the "module_name" in the provider struct.
+         if hasattr(dep, "module_name"):
+-            module_name = dep.module_name
+-
++            package_name = dep.module_name
+         if hasattr(dep, "angular") and hasattr(dep.angular, "flat_module_metadata"):
+-            # For dependencies which are built using the "ng_module" with flat module bundles
+-            # enabled, we determine the module name, the flat module index file, the metadata
+-            # file and the typings entry point from the flat module metadata which is set by
+-            # the "ng_module" rule.
+-            ng_module_metadata = dep.angular.flat_module_metadata
+-            module_name = ng_module_metadata.module_name
+-            index_file = ng_module_metadata.flat_module_out_file + ".js"
+-            typings_path = ng_module_metadata.typings_file.path
+-            metadata_file = ng_module_metadata.metadata_file
+-            guessed_paths = False
+-            _debug(
+-                ctx.var,
+-                "entry-point %s is built using a flat module bundle." % dep,
+-                "using %s as main file of the entry-point" % index_file,
+-            )
++            flat_module_metadata.append(dep.angular.flat_module_metadata)
++            flat_module_out_file = dep.angular.flat_module_metadata.flat_module_out_file + ".js"
+         else:
+-            # In case the dependency is built through the "ts_library" rule, or the "ng_module"
+-            # rule does not generate a flat module bundle, we determine the index file and
+-            # typings entry-point through the most reasonable defaults (i.e. "package/index").
+-            output_dir = "/".join([
+-                p
+-                for p in [
+-                    ctx.bin_dir.path,
+-                    ctx.label.package,
+-                    entry_point,
+-                ]
+-                if p
+-            ])
+-
+             # fallback to a reasonable default
+-            index_file = "index.js"
+-            typings_path = "%s/index.d.ts" % output_dir
+-            metadata_file = None
+-            guessed_paths = True
+-            _debug(
+-                ctx.var,
+-                "entry-point %s does not have flat module metadata." % dep,
+-                "guessing %s as main file of the entry-point" % index_file,
+-            )
+-
+-        # Store the collected entry point in a list of all entry-points. This
+-        # can be later passed to the packager as a manifest.
+-        collected_entry_points.append(struct(
+-            module_name = module_name,
+-            typings_path = typings_path,
+-            metadata_file = metadata_file,
+-            guessed_paths = guessed_paths,
+-        ))
++            flat_module_out_file = "index.js"
+ 
+         if hasattr(dep, "dts_bundles"):
+             bundled_type_definitions += dep.dts_bundles
+@@ -311,8 +262,8 @@ def _ng_package_impl(ctx):
+             ).to_list()
+ 
+         if len(type_definitions) > 0 and len(bundled_type_definitions) > 0:
+-            # bundle_dts needs to be enabled/disabled for all entry points.
+-            fail("Expected all or none of the entry points to have 'bundle_dts' enabled.")
++            # bundle_dts needs to be enabled/disabled for all ng module packages.
++            fail("Expected all or none of the 'ng_module' dependencies to have 'bundle_dts' enabled.")
+ 
+         es2015_entry_point = "/".join([p for p in [
+             ctx.bin_dir.path,
+@@ -320,13 +271,13 @@ def _ng_package_impl(ctx):
+             _esm2015_root_dir(ctx),
+             ctx.label.package,
+             entry_point,
+-            index_file,
++            flat_module_out_file,
+         ] if p])
+ 
+         es5_entry_point = "/".join([p for p in [
+             ctx.label.package,
+             entry_point,
+-            index_file,
++            flat_module_out_file,
+         ] if p])
+ 
+         if entry_point:
+@@ -347,10 +298,10 @@ def _ng_package_impl(ctx):
+         node_modules_files = _filter_js_inputs(ctx.files.node_modules)
+ 
+         # Also include files from npm fine grained deps as inputs.
+-        # These deps are identified by the NodeModuleSources provider.
++        # These deps are identified by the NodeModuleInfo provider.
+         for d in ctx.attr.deps:
+-            if NodeModuleSources in d:
+-                node_modules_files += _filter_js_inputs(d.files)
++            if NodeModuleInfo in d:
++                node_modules_files += _filter_js_inputs(d[NodeModuleInfo].sources)
+         esm5_rollup_inputs = depset(node_modules_files, transitive = [esm5_sources])
+ 
+         esm2015_config = write_rollup_config(ctx, [], "/".join([ctx.bin_dir.path, ctx.label.package, _esm2015_root_dir(ctx)]), filename = "_%s.rollup_esm2015.conf.js")
+@@ -367,8 +318,8 @@ def _ng_package_impl(ctx):
+                 es5_entry_point,
+                 esm5_rollup_inputs,
+                 umd_output,
+-                module_name = module_name,
+                 format = "umd",
++                package_name = package_name,
+                 include_tslib = True,
+             ),
+         )
+@@ -400,19 +351,14 @@ def _ng_package_impl(ctx):
+     packager_args.add_joined([ctx.genfiles_dir.path, ctx.label.package], join_with = "/")
+ 
+     # Marshal the metadata into a JSON string so we can parse the data structure
+-    # in the TypeScript program easily.
++    # in the TypeScript program easily.NodeModuleInfo
+     metadata_arg = {}
+-    for m in collected_entry_points:
+-        if m.metadata_file:
+-            packager_inputs.extend([m.metadata_file])
++    for m in NodeModuleInfo:
++        packager_inputs.extend([m.metadata_file])
+         metadata_arg[m.module_name] = {
+-            "index": m.typings_path.replace(".d.ts", ".js"),
+-            "typings": m.typings_path,
+-            # Metadata can be undefined if entry point is built with "ts_library".
+-            "metadata": m.metadata_file.path if m.metadata_file else "",
+-            # If the paths for that entry-point were guessed (e.g. "ts_library" rule or
+-            # "ng_module" without flat module bundle), we pass this information to the packager.
+-            "guessedPaths": "true" if m.guessed_paths else "",
++            "index": m.typings_file.path.replace(".d.ts", ".js"),
++            "typings": m.typings_file.path,
++            "metadata": m.metadata_file.path,
+         }
+     packager_args.add(str(metadata_arg))
+ 
+@@ -456,8 +402,8 @@ def _ng_package_impl(ctx):
+     devfiles = depset()
+     if ctx.attr.include_devmode_srcs:
+         for d in ctx.attr.deps:
+-            if hasattr(d, "node_sources"):
+-                devfiles = depset(transitive = [devfiles, d.node_sources])
++            if JSNamedModuleInfo in dep:
++                devfiles = depset(transitive = [devfiles, d[JSNamedModuleInfo].sources])
+ 
+     # Re-use the create_package function from the nodejs npm_package rule.
+     package_dir = create_package(
+@@ -469,7 +415,7 @@ def _ng_package_impl(ctx):
+         files = depset([package_dir]),
+     )]
+ 
+-DEPS_ASPECTS = [esm5_outputs_aspect, sources_aspect]
++DEPS_ASPECTS = [esm5_outputs_aspect]
+ 
+ # Workaround skydoc bug which assumes ROLLUP_DEPS_ASPECTS is a str type
+ [DEPS_ASPECTS.append(a) for a in ROLLUP_DEPS_ASPECTS]

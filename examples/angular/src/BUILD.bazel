@@ -43,6 +43,13 @@ ts_library(
     ],
 )
 
+filegroup(
+    name = "initialize_testbed_js",
+    testonly = 1,
+    srcs = [":initialize_testbed"],
+    output_group = "es5_sources",
+)
+
 ng_module(
     name = "src",
     srcs = [

@@ -71,7 +71,8 @@ ts_web_test_suite(
         "@io_bazel_rules_webtesting//browsers:firefox-local",
     ],
     runtime_deps = [
-        "//src:initialize_testbed",
+        # Just run initialize_testbed.js and not its transitive deps
+        "//src:initialize_testbed_js",
     ],
     deps = [
         ":test_lib",
