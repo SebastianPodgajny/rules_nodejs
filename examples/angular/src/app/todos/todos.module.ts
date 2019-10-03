@@ -7,12 +7,14 @@ import {MaterialModule} from '../../shared/material/material.module';
 import {TodosComponent} from './todos.component';
 
 @NgModule({
-  declarations: [TodosComponent],
-  imports: [
-    CommonModule, FormsModule, RouterModule, MaterialModule,
-    RouterModule.forChild([{path: '', component: TodosComponent}])
-  ],
-
+    declarations: [TodosComponent],
+    imports: [
+        CommonModule,
+        FormsModule,
+        RouterModule,
+        MaterialModule.forRoot(),
+        RouterModule.forChild([{path: '', component: TodosComponent}]),
+    ],
 })
 export class TodosModule {
 }

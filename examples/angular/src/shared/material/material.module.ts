@@ -1,4 +1,4 @@
-import {NgModule} from '@angular/core';
+import {ModuleWithProviders, NgModule} from '@angular/core';
 import {MatButtonModule} from '@angular/material/button';
 import {MatCardModule} from '@angular/material/card';
 import {MatFormFieldModule} from '@angular/material/form-field';
@@ -26,4 +26,10 @@ const matModules = [
   exports: matModules,
 })
 export class MaterialModule {
+  public static forRoot(): ModuleWithProviders {
+    return {
+      ngModule: MaterialModule,
+      providers: [],
+    }
+  }
 }
